@@ -1,0 +1,5 @@
+username: "postgres"
+password: "2048"
+host: "localhost"
+port: "5432"
+database: "stats_sender_prod"
