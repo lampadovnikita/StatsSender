@@ -49,8 +49,11 @@ func (h *Handler) InitRoutes() *gin.Engine {
 
 	engine.GET("ping", h.Ping)
 
-	engine.POST("user/authenticate", h.AuthenticateUser)
-	engine.POST("user/register", h.RegisterUser)
+	userGroup := engine.Group("user")
+	{
+		userGroup.POST("authenticate", h.AuthenticateUser)
+		userGroup.POST("register", h.RegisterUser)
+	}
 
 	verified := engine.Group("", h.Verify)
 	{
@@ -58,9 +61,12 @@ func (h *Handler) InitRoutes() *gin.Engine {
 
 		verified.GET("level/bounds", h.SendCharacterLevelBounds)
 
-		verified.POST("character/create", h.CreateCharacter)
-		verified.GET("character", h.SendCharacterData)
-		verified.GET("character/isCreated", h.SendIsCharacterCreated)
+		characterGroup := verified.Group("character")
+		{
+			characterGroup.GET("", h.SendCharacterData)
+			characterGroup.POST("create", h.CreateCharacter)
+			characterGroup.GET("isCreated", h.SendIsCharacterCreated)
+		}
 	}
 
 	return engine
