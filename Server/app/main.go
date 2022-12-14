@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"stats-sender/character"
 	"stats-sender/handler"
@@ -32,10 +33,17 @@ func main() {
 	characterStorage := &character.PGStorage{PGPool: pool}
 	lb := levelbounds.Model{Bounds: levelbounds.CalculateExpBounds(characterLevelCap)}
 
+	l := logrus.New()
+	l.Formatter = &logrus.TextFormatter{
+		DisableColors: false,
+		FullTimestamp: true,
+	}
+
 	h := handler.Handler{
 		UserStorage:      userStorage,
 		CharacterStorage: characterStorage,
 		LevelBounds:      lb,
+		Logger:           l,
 	}
 
 	serv := server.Server{

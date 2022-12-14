@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/jackc/pgx/v5"
+	"github.com/sirupsen/logrus"
 	"net/http"
 	"stats-sender/character"
 	"stats-sender/character/isCharacterCreated"
@@ -40,6 +41,7 @@ type Handler struct {
 	UserStorage      user.Storage
 	CharacterStorage character.Storage
 	LevelBounds      levelbounds.Model
+	Logger           *logrus.Logger
 }
 
 func (h *Handler) InitRoutes() *gin.Engine {
@@ -69,7 +71,7 @@ func (h *Handler) Verify(c *gin.Context) {
 
 	id, err := h.ParseAuthHeader(c)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, h.getErrorMap(authError))
+		h.errorResponse(c, http.StatusUnauthorized, authError)
 		return
 	}
 
@@ -83,7 +85,7 @@ func (h *Handler) Ping(c *gin.Context) {
 func (h *Handler) SendPreloadData(c *gin.Context) {
 	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -93,7 +95,7 @@ func (h *Handler) SendPreloadData(c *gin.Context) {
 		if err == pgx.ErrNoRows {
 			isCharCreated = false
 		} else {
-			c.IndentedJSON(http.StatusInternalServerError, h.getErrorMap(err))
+			h.errorResponse(c, http.StatusInternalServerError, err)
 			return
 		}
 	}
@@ -121,7 +123,7 @@ func (h *Handler) SendCharacterLevelBounds(c *gin.Context) {
 func (h *Handler) SendCharacterData(c *gin.Context) {
 	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -130,7 +132,7 @@ func (h *Handler) SendCharacterData(c *gin.Context) {
 		if err == pgx.ErrNoRows {
 			c.Status(http.StatusNoContent)
 		} else {
-			c.IndentedJSON(http.StatusBadRequest, h.getErrorMap(err))
+			h.errorResponse(c, http.StatusBadRequest, err)
 		}
 
 		return
@@ -149,13 +151,13 @@ func (h *Handler) CreateCharacter(c *gin.Context) {
 	charModel := character.Model{}
 	err := c.BindJSON(&charModel)
 	if err != nil {
-		c.IndentedJSON(http.StatusBadRequest, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusBadRequest, err)
 		return
 	}
 
 	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -169,7 +171,7 @@ func (h *Handler) CreateCharacter(c *gin.Context) {
 	}
 	err = h.CharacterStorage.Insert(rec)
 	if err != nil {
-		c.IndentedJSON(http.StatusUnprocessableEntity, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusUnprocessableEntity, err)
 		return
 	}
 
@@ -179,7 +181,7 @@ func (h *Handler) CreateCharacter(c *gin.Context) {
 func (h *Handler) SendIsCharacterCreated(c *gin.Context) {
 	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -190,7 +192,7 @@ func (h *Handler) SendIsCharacterCreated(c *gin.Context) {
 		if err == pgx.ErrNoRows {
 			isCreated = false
 		} else {
-			c.IndentedJSON(http.StatusUnprocessableEntity, h.getErrorMap(err))
+			h.errorResponse(c, http.StatusUnprocessableEntity, err)
 			return
 		}
 	}
@@ -203,7 +205,7 @@ func (h *Handler) RegisterUser(c *gin.Context) {
 	u := user.Model{}
 	err := c.BindJSON(&u)
 	if err != nil {
-		c.IndentedJSON(http.StatusBadRequest, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusBadRequest, err)
 		return
 	}
 
@@ -211,7 +213,7 @@ func (h *Handler) RegisterUser(c *gin.Context) {
 	rec := &user.Record{Login: u.Login, EncryptedPassword: encPass}
 	err = h.UserStorage.Insert(rec)
 	if err != nil {
-		c.IndentedJSON(http.StatusUnprocessableEntity, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusUnprocessableEntity, err)
 		return
 	}
 
@@ -222,28 +224,28 @@ func (h *Handler) AuthenticateUser(c *gin.Context) {
 	u := user.Model{}
 	err := c.BindJSON(&u)
 	if err != nil {
-		c.IndentedJSON(http.StatusBadRequest, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusBadRequest, err)
 		return
 	}
 
 	rec, err := h.UserStorage.FindByLogin(u.Login)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			c.IndentedJSON(http.StatusUnauthorized, h.getErrorMap(incorrectLoginOrPassword))
+			h.errorResponse(c, http.StatusUnauthorized, incorrectLoginOrPassword)
 		} else {
-			c.IndentedJSON(http.StatusUnprocessableEntity, h.getErrorMap(err))
+			h.errorResponse(c, http.StatusUnprocessableEntity, err)
 		}
 		return
 	}
 
 	if rec.ComparePassword(u.Password) != true {
-		c.IndentedJSON(http.StatusUnauthorized, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusUnauthorized, err)
 		return
 	}
 
 	bearerToken, err := h.CreateToken(rec.ID, time.Hour*12)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, h.getErrorMap(err))
+		h.errorResponse(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -314,4 +316,9 @@ func (h *Handler) getUserIDFromContext(c *gin.Context) (int, error) {
 
 func (h *Handler) getErrorMap(err error) map[string]any {
 	return gin.H{"error": err.Error()}
+}
+
+func (h *Handler) errorResponse(c *gin.Context, statusCode int, err error) {
+	h.Logger.Error(err)
+	c.AbortWithStatusJSON(statusCode, gin.H{"error": err.Error()})
 }
