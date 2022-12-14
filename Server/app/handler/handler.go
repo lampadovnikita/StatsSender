@@ -320,10 +320,6 @@ func (h *Handler) getUserIDFromContext(c *gin.Context) (int, error) {
 	return userID, nil
 }
 
-func (h *Handler) getErrorMap(err error) map[string]any {
-	return gin.H{"error": err.Error()}
-}
-
 func (h *Handler) errorResponse(c *gin.Context, statusCode int, err error) {
 	h.Logger.Error(err)
 	c.AbortWithStatusJSON(statusCode, gin.H{"error": err.Error()})
