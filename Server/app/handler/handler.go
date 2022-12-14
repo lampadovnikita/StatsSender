@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/jackc/pgx/v5"
 	"github.com/sirupsen/logrus"
 	"net/http"
@@ -12,26 +11,19 @@ import (
 	"stats-sender/character/isCharacterCreated"
 	"stats-sender/character/levelprogress"
 	"stats-sender/character/stats"
+	"stats-sender/jwt"
 	"stats-sender/levelbounds"
 	"stats-sender/preload"
 	"stats-sender/user"
-	"strconv"
-	"strings"
 	"time"
 )
 
 const userIDKey = "user_id"
 
-const cryptoKey = "CRYPTO_KEY"
-
-const signingMethodErrorFormat = "unexpected signing method: %v"
-
-var incorrectLoginOrPassword = errors.New("incorrect login or password")
+var incorrectLoginOrPasswordError = errors.New("incorrect login or password")
 var authError = errors.New("authentication error")
 var userIDNotFoundError = errors.New("can't found user ID")
 var cantConvertUserIDError = errors.New("can't convert user ID")
-var emptyHeaderError = errors.New("the header is empty")
-var invalidAuthHeaderError = errors.New("invalid auth header")
 
 type TokenResponse struct {
 	BearerToken string `json:"bearer_token"`
@@ -75,7 +67,7 @@ func (h *Handler) InitRoutes() *gin.Engine {
 func (h *Handler) Verify(c *gin.Context) {
 	fmt.Println("Verification")
 
-	id, err := h.ParseAuthHeader(c)
+	id, err := jwt.ParseAuthHeader(c)
 	if err != nil {
 		h.errorResponse(c, http.StatusUnauthorized, authError)
 		return
@@ -237,7 +229,7 @@ func (h *Handler) AuthenticateUser(c *gin.Context) {
 	rec, err := h.UserStorage.FindByLogin(u.Login)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			h.errorResponse(c, http.StatusUnauthorized, incorrectLoginOrPassword)
+			h.errorResponse(c, http.StatusUnauthorized, incorrectLoginOrPasswordError)
 		} else {
 			h.errorResponse(c, http.StatusUnprocessableEntity, err)
 		}
@@ -249,61 +241,13 @@ func (h *Handler) AuthenticateUser(c *gin.Context) {
 		return
 	}
 
-	bearerToken, err := h.CreateToken(rec.ID, time.Hour*12)
+	bearerToken, err := jwt.CreateToken(rec.ID, time.Hour*12)
 	if err != nil {
 		h.errorResponse(c, http.StatusInternalServerError, err)
 		return
 	}
 
 	c.IndentedJSON(http.StatusOK, TokenResponse{BearerToken: bearerToken})
-}
-
-func (h *Handler) CreateToken(userID int, ttl time.Duration) (string, error) {
-	rc := jwt.RegisteredClaims{
-		Subject:   strconv.Itoa(userID),
-		ExpiresAt: &jwt.NumericDate{Time: time.Now().Add(ttl)},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, rc)
-
-	return token.SignedString([]byte(cryptoKey))
-}
-
-func (h *Handler) ParseAuthHeader(c *gin.Context) (int, error) {
-	authHeader := c.GetHeader("Authorization")
-
-	headerParts := strings.Split(authHeader, " ")
-	if len(headerParts) != 2 || headerParts[0] != "Bearer" {
-		return 0, invalidAuthHeaderError
-	}
-
-	if len(headerParts[1]) == 0 {
-		return 0, emptyHeaderError
-	}
-
-	return h.ParseBearerToken(headerParts[1])
-}
-
-func (h *Handler) ParseBearerToken(accessToken string) (int, error) {
-	claims := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(accessToken, claims, func(token *jwt.Token) (i interface{}, err error) {
-		_, ok := token.Method.(*jwt.SigningMethodHMAC)
-		if ok != true {
-			return nil, fmt.Errorf(signingMethodErrorFormat, token.Header["alg"])
-		}
-
-		return []byte(cryptoKey), nil
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	id, err := strconv.Atoi(claims["sub"].(string))
-	if err != nil {
-		return 0, err
-	}
-
-	return id, nil
 }
 
 func (h *Handler) getUserIDFromContext(c *gin.Context) (int, error) {
